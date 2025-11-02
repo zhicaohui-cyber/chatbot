@@ -93,7 +93,7 @@ if st.button("プランを生成する"):
         "generationConfig": {
             "temperature": 0.2 if urgency_weight == "コスト重視" else 0.7,
             "topP": 0.9,
-            "maxOutputTokens": 800
+            "maxOutputTokens": 2048   # 最大出力トークン数を増加
         }
     }
 
@@ -114,7 +114,14 @@ if st.button("プランを生成する"):
             if "candidates" in result and result["candidates"]:
                 content = result["candidates"][0].get("content", {})
                 parts = content.get("parts", [])
-                generated_text = parts[0].get("text", "") if parts else ""
+                if parts:
+                    generated_text = parts[0].get("text", "")
+                else:
+                    finish_reason = result["candidates"][0].get("finishReason", "")
+                    if finish_reason == "MAX_TOKENS":
+                        generated_text = "出力上限に達しました。maxOutputTokens（最大出力トークン数）をさらに増やしてください。"
+                    else:
+                        generated_text = f"API応答にテキストが含まれていません（finishReason: {finish_reason}）。"
             else:
                 generated_text = "（API応答の解析に失敗しました）\n" + json.dumps(result, ensure_ascii=False)
 
