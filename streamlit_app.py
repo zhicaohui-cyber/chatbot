@@ -105,9 +105,16 @@ if st.button("プランを生成する"):
         }
     }
 
+    # デバッグ表示
+    st.subheader("APIリクエスト内容（デバッグ用）")
+    st.code(json.dumps(data, ensure_ascii=False, indent=2), language="json")
+
     try:
         with st.spinner("アクションプランを生成中...（数秒〜30秒）"):
             response = requests.post(api_url, headers=headers, json=data, timeout=60)
+            # デバッグ表示（レスポンスの内容）
+            st.subheader("APIレスポンス内容（デバッグ用）")
+            st.code(response.text, language="json")
             response.raise_for_status()
             result = response.json()
 
@@ -124,7 +131,6 @@ if st.button("プランを生成する"):
 
         # サマリーボックス：簡易抽出（そのままCSVにするための最小構造）
         st.subheader("構造化された出力（CSVダウンロード用）")
-        # 非構造テキストからの厳密なパースは難しいため、ここでは簡易CSV化のテンプレを示す
         rows = []
         rows.append(["部署", "提案", "説明（抜粋）"])
         rows.append([org_name, "AI生成プラン（全文）", generated_text[:300].replace("\n", " ")])
@@ -141,6 +147,9 @@ if st.button("プランを生成する"):
             st.session_state.plans = []
         st.session_state.plans.append({"date": str(date), "content": generated_text})
 
+    except requests.exceptions.HTTPError as e:
+        st.error(f"APIリクエストエラー: {e}")
+        st.error(f"エラー詳細: {getattr(e.response, 'text', str(e))}")
     except requests.exceptions.RequestException as e:
         st.error(f"APIリクエストエラー: {e}")
     except Exception as e:
