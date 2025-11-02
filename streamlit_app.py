@@ -9,7 +9,7 @@ st.set_page_config(page_title="看護管理者向け 時間外労働削減ツー
 
 st.title("⏱️ 看護管理者向け — 時間外労働削減アシスタント")
 st.markdown(
-    "このツールは病棟や部署の現状を入力すると、短期・中長期の実行可能なアクションプラン、"
+    "このツールは病棟や部署の現状を入力すると、短期・中期・長期の実行可能なアクションプラン、"
     "優先順位、チェックリストを自動生成して、時間外労働を削減するための支援を行います。"
 )
 
@@ -24,7 +24,9 @@ with st.sidebar:
     org_name = st.text_input("施設/部署名", value="病棟A")
     manager_name = st.text_input("管理者名", value="")
     date = st.date_input("作成日", value=datetime.date.today())
-    model_name = st.selectbox("使用する Gemini モデル", ("gemini-2.5-flash", "gemini-2.5-pro"))
+    # モデルをgemini-2.5-proで固定
+    st.markdown("**使用モデル: gemini-2.5-pro（出力最大4096トークン）**")
+    model_name = "gemini-2.5-pro"
     st.markdown("---")
     st.info("入力情報をもとに、看護管理者向けの実行可能な対策案を生成します。", icon="ℹ️")
 
@@ -50,8 +52,9 @@ st.markdown("---")
 st.header("2. 生成オプション")
 col3, col4 = st.columns([2,1])
 with col3:
-    focus_horizon = st.radio("優先する実施期間", ("短期（即時〜1ヶ月）", "中期（1〜3ヶ月）", "長期（3〜12ヶ月）", "全期間"))
-    max_solutions = st.slider("提案する案の最大数（合計）", min_value=1, max_value=10, value=5)
+    # 期間ごとに分割してリクエスト
+    period = st.radio("アクションプランの期間（1回につき1期間の提案）", ("短期（即時〜1ヶ月）", "中期（1〜3ヶ月）", "長期（3〜12ヶ月）"))
+    max_solutions = st.slider("提案する案の最大数（この期間で）", min_value=1, max_value=5, value=3)
     include_checklist = st.checkbox("アクションごとのチェックリストを含める", value=True)
 with col4:
     urgency_weight = st.selectbox("「効果 vs コスト」の優先度", ("効果重視", "コスト重視", "バランス"))
@@ -59,13 +62,12 @@ with col4:
 st.markdown("---")
 st.header("3. アクションプラン生成")
 
-if st.button("プランを生成する"):
-    # プロンプトと入力情報を1つのメッセージにまとめる
+if st.button("この期間のプランを生成する"):
+    # 期間ごと・提案数ごとにプロンプトを分割
     prompt_content = (
-        "あなたは看護管理の専門家です。以下の病棟情報を読み取り、時間外労働（残業）を減らすための"
-        "実行可能なアクションプランを、短期/中期/長期ごとに分けて提案してください。"
+        f"あなたは看護管理の専門家です。以下の病棟情報をもとに、時間外労働削減のための『{period}』のアクションプランを{max_solutions}件、具体的に提案してください。\n"
         "各案には「説明」「期待効果（定量的に可能なら数値）」「想定コスト/負荷（低・中・高）」「実施の優先度（高/中/低）」"
-        "および、実施チェックリスト（手順）」をつけてください。\n"
+        f"{'および、実施チェックリスト（手順）' if include_checklist else ''}をつけてください。\n"
         f"施設/部署: {org_name}\n"
         f"管理者: {manager_name}\n"
         f"作成日: {date}\n"
@@ -76,10 +78,7 @@ if st.button("プランを生成する"):
         f"主な原因:\n{primary_causes}\n"
         f"既存対策:\n{current_interventions}\n"
         f"制約:\n{constraints}\n"
-        f"希望する期間: {focus_horizon}\n"
-        f"提案数上限: {max_solutions}\n"
         f"優先度: {urgency_weight}\n"
-        f"チェックリストを含める: {include_checklist}\n"
     )
 
     gemini_messages = [
@@ -93,7 +92,7 @@ if st.button("プランを生成する"):
         "generationConfig": {
             "temperature": 0.2 if urgency_weight == "コスト重視" else 0.7,
             "topP": 0.9,
-            "maxOutputTokens": 2048   # 最大出力トークン数を増加
+            "maxOutputTokens": 4096   # proモデルで最大4096
         }
     }
 
@@ -102,7 +101,7 @@ if st.button("プランを生成する"):
     st.code(json.dumps(data, ensure_ascii=False, indent=2), language="json")
 
     try:
-        with st.spinner("アクションプランを生成中...（数秒〜30秒）"):
+        with st.spinner(f"{period}のアクションプランを生成中...（数秒〜30秒）"):
             response = requests.post(api_url, headers=headers, json=data, timeout=60)
             # デバッグ表示（レスポンスの内容）
             st.subheader("APIレスポンス内容（デバッグ用）")
@@ -125,26 +124,26 @@ if st.button("プランを生成する"):
             else:
                 generated_text = "（API応答の解析に失敗しました）\n" + json.dumps(result, ensure_ascii=False)
 
-        st.subheader("提案されたアクションプラン（AI生成）")
+        st.subheader(f"{period}のアクションプラン（AI生成）")
         st.markdown(generated_text)
 
         # サマリーボックス：簡易抽出（そのままCSVにするための最小構造）
         st.subheader("構造化された出力（CSVダウンロード用）")
         rows = []
-        rows.append(["部署", "提案", "説明（抜粋）"])
-        rows.append([org_name, "AI生成プラン（全文）", generated_text[:300].replace("\n", " ")])
+        rows.append(["部署", "期間", "提案", "説明（抜粋）"])
+        rows.append([org_name, period, f"AI生成プラン（{period}）", generated_text[:300].replace("\n", " ")])
         csv_buf = StringIO()
         writer = csv.writer(csv_buf)
         writer.writerows(rows)
         csv_data = csv_buf.getvalue()
-        st.download_button("CSVでダウンロード", data=csv_data, file_name=f"action_plan_{org_name}_{date}.csv", mime="text/csv")
+        st.download_button("CSVでダウンロード", data=csv_data, file_name=f"action_plan_{org_name}_{period}_{date}.csv", mime="text/csv")
 
         # コピーボタン（クリップボードに全文コピー）
         st.button("全文をクリップボードにコピー（ブラウザの機能を使用）")
         # 履歴に保存（セッション）
         if "plans" not in st.session_state:
             st.session_state.plans = []
-        st.session_state.plans.append({"date": str(date), "content": generated_text})
+        st.session_state.plans.append({"date": str(date), "period": period, "content": generated_text})
 
     except requests.exceptions.HTTPError as e:
         st.error(f"APIリクエストエラー: {e}")
@@ -158,8 +157,8 @@ st.markdown("---")
 st.header("4. 既に生成したプラン（セッション）")
 if "plans" in st.session_state and st.session_state.plans:
     for p in st.session_state.plans[::-1]:
-        st.markdown(f"**{p['date']}**")
-        st.text_area("生成内容（編集可）", value=p["content"], height=200, key=f"plan_{p['date']}_{len(p['content'])}")
+        st.markdown(f"**{p['date']}・{p['period']}**")
+        st.text_area("生成内容（編集可）", value=p["content"], height=200, key=f"plan_{p['date']}_{p['period']}_{len(p['content'])}")
 else:
     st.info("まだプランは生成されていません。上のフォームから生成してください。", icon="💡")
 
