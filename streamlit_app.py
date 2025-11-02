@@ -60,18 +60,12 @@ st.markdown("---")
 st.header("3. アクションプラン生成")
 
 if st.button("プランを生成する"):
-    # 組み立てプロンプト
-    prompt = {
-        "role": "system",
-        "content": (
-            "あなたは看護管理の専門家です。以下の病棟情報を読み取り、時間外労働（残業）を減らすための"
-            "実行可能なアクションプランを、短期/中期/長期ごとに分けて提案してください。"
-            "各案には「説明」「期待効果（定量的に可能なら数値）」「想定コスト/負荷（低・中・高）」「実施の優先度（高/中/低）」"
-            "および、実施チェックリスト（手順）」をつけてください。"
-        )
-    }
-
-    user_content = (
+    # プロンプトと入力情報を1つのメッセージにまとめる
+    prompt_content = (
+        "あなたは看護管理の専門家です。以下の病棟情報を読み取り、時間外労働（残業）を減らすための"
+        "実行可能なアクションプランを、短期/中期/長期ごとに分けて提案してください。"
+        "各案には「説明」「期待効果（定量的に可能なら数値）」「想定コスト/負荷（低・中・高）」「実施の優先度（高/中/低）」"
+        "および、実施チェックリスト（手順）」をつけてください。\n"
         f"施設/部署: {org_name}\n"
         f"管理者: {manager_name}\n"
         f"作成日: {date}\n"
@@ -87,12 +81,10 @@ if st.button("プランを生成する"):
         f"優先度: {urgency_weight}\n"
         f"チェックリストを含める: {include_checklist}\n"
     )
-    prompt_user = {"role": "user", "content": user_content}
 
-    # 準備：Gemini API の期待されるメッセージ構造に変換
-    gemini_messages = []
-    for m in (prompt, prompt_user):
-        gemini_messages.append({"role": m["role"], "parts": [{"text": m["content"]}]})
+    gemini_messages = [
+        {"role": "user", "parts": [{"text": prompt_content}]}
+    ]
 
     api_url = f"https://generativelanguage.googleapis.com/v1/models/{model_name}:generateContent?key={gemini_api_key}"
     headers = {"Content-Type": "application/json"}
