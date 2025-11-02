@@ -9,7 +9,7 @@ st.set_page_config(page_title="看護管理者向け 時間外労働削減ツー
 
 st.title("⏱️ 看護管理者向け — 時間外労働削減アシスタント")
 st.markdown(
-    "このツールは病棟や部署の現状を入力すると、短期・中期・長期の実行可能なアクションプラン、"
+    "このツールは病棟や部署の現状を入力すると、期間ごとの実行可能なアクションプラン、"
     "優先順位、チェックリストを自動生成して、時間外労働を削減するための支援を行います。"
 )
 
@@ -21,7 +21,8 @@ if not gemini_api_key:
 # サイドバー：基本情報入力
 with st.sidebar:
     st.header("病棟/部署情報")
-    org_name = st.text_input("施設/部署名", value="病棟A")
+    org_name = st.text_input("施設名", value="〇〇病院")
+    department_name = st.text_input("部署名・病棟名", value="〇階西病棟")
     manager_name = st.text_input("管理者名", value="")
     date = st.date_input("作成日", value=datetime.date.today())
     # モデルをgemini-2.5-proで固定
@@ -37,10 +38,13 @@ col1, col2 = st.columns(2)
 with col1:
     staff_count = st.number_input("常勤スタッフ数（フルタイム換算）", min_value=0, value=10)
     avg_overtime_per_week = st.number_input("1人当たり平均残業時間/週", min_value=0.0, value=8.0, step=0.5)
-    peak_days = st.multiselect("残業が多い曜日/シフト", ["月","火","水","木","金","土","日","夜勤"], default=["金","夜勤"])
-    typical_shift_length = st.number_input("典型的なシフト時間（時間）", min_value=0, value=8)
+    monthly_overtime = st.number_input("部署合計の時間外（月間、時間）", min_value=0.0, value=120.0, step=1.0)
+    bed_utilization = st.number_input("病床利用率（%）", min_value=0.0, max_value=100.0, value=85.0, step=0.1)
+    care_level = st.text_input("看護必要度（例: 平均スコア・病棟区分など）", value="A基準: 40%, B基準: 50%")
 
 with col2:
+    peak_days = st.multiselect("残業が多い曜日/シフト", ["月","火","水","木","金","土","日","夜勤"], default=["金","夜勤"])
+    typical_shift_length = st.number_input("典型的なシフト時間（時間）", min_value=0, value=8)
     primary_causes = st.text_area(
         "時間外の主な原因（箇条書きで）",
         value="- 患者入退院の集中\n- 申し送り・ミーティングが長引く\n- 夜間の急変対応で人員不足\n- 書類作業が多い"
@@ -68,11 +72,15 @@ if st.button("この期間のプランを生成する"):
         f"あなたは看護管理の専門家です。以下の病棟情報をもとに、時間外労働削減のための『{period}』のアクションプランを{max_solutions}件、具体的に提案してください。\n"
         "各案には「説明」「期待効果（定量的に可能なら数値）」「想定コスト/負荷（低・中・高）」「実施の優先度（高/中/低）」"
         f"{'および、実施チェックリスト（手順）' if include_checklist else ''}をつけてください。\n"
-        f"施設/部署: {org_name}\n"
+        f"施設名: {org_name}\n"
+        f"部署名: {department_name}\n"
         f"管理者: {manager_name}\n"
         f"作成日: {date}\n"
         f"常勤スタッフ数(FT): {staff_count}\n"
         f"平均残業時間/週: {avg_overtime_per_week}\n"
+        f"部署合計の時間外（月間）: {monthly_overtime}\n"
+        f"病床利用率: {bed_utilization}%\n"
+        f"看護必要度: {care_level}\n"
         f"残業の多いシフト: {', '.join(peak_days)}\n"
         f"シフト長: {typical_shift_length}時間\n"
         f"主な原因:\n{primary_causes}\n"
@@ -130,20 +138,20 @@ if st.button("この期間のプランを生成する"):
         # サマリーボックス：簡易抽出（そのままCSVにするための最小構造）
         st.subheader("構造化された出力（CSVダウンロード用）")
         rows = []
-        rows.append(["部署", "期間", "提案", "説明（抜粋）"])
-        rows.append([org_name, period, f"AI生成プラン（{period}）", generated_text[:300].replace("\n", " ")])
+        rows.append(["施設名", "部署名", "期間", "提案", "説明（抜粋）"])
+        rows.append([org_name, department_name, period, f"AI生成プラン（{period}）", generated_text[:300].replace("\n", " ")])
         csv_buf = StringIO()
         writer = csv.writer(csv_buf)
         writer.writerows(rows)
         csv_data = csv_buf.getvalue()
-        st.download_button("CSVでダウンロード", data=csv_data, file_name=f"action_plan_{org_name}_{period}_{date}.csv", mime="text/csv")
+        st.download_button("CSVでダウンロード", data=csv_data, file_name=f"action_plan_{org_name}_{department_name}_{period}_{date}.csv", mime="text/csv")
 
         # コピーボタン（クリップボードに全文コピー）
         st.button("全文をクリップボードにコピー（ブラウザの機能を使用）")
         # 履歴に保存（セッション）
         if "plans" not in st.session_state:
             st.session_state.plans = []
-        st.session_state.plans.append({"date": str(date), "period": period, "content": generated_text})
+        st.session_state.plans.append({"date": str(date), "period": period, "org": org_name, "dept": department_name, "content": generated_text})
 
     except requests.exceptions.HTTPError as e:
         st.error(f"APIリクエストエラー: {e}")
@@ -157,8 +165,8 @@ st.markdown("---")
 st.header("4. 既に生成したプラン（セッション）")
 if "plans" in st.session_state and st.session_state.plans:
     for p in st.session_state.plans[::-1]:
-        st.markdown(f"**{p['date']}・{p['period']}**")
-        st.text_area("生成内容（編集可）", value=p["content"], height=200, key=f"plan_{p['date']}_{p['period']}_{len(p['content'])}")
+        st.markdown(f"**{p['date']}・{p['org']}・{p['dept']}・{p['period']}**")
+        st.text_area("生成内容（編集可）", value=p["content"], height=200, key=f"plan_{p['date']}_{p['org']}_{p['dept']}_{p['period']}_{len(p['content'])}")
 else:
     st.info("まだプランは生成されていません。上のフォームから生成してください。", icon="💡")
 
